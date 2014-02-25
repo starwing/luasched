@@ -5,7 +5,9 @@ lua-sched is A C implemented Lua coroutine scheduler which implements
 a Lumen[1] like interface. It's designed to used to implement a
 coroutine based libuv binding.
 
-lua-sched has two object: signal and task. Signal is a object that
+[1]: https://github.com/xopxe/Lumen
+
+lua-sched has two object: `signal` and `task`. Signal is a object that
 task can wait on then, if signal is emit, all task wait on it will
 wakeup and get the argument you pass to signal. You can iterate tasks
 wait on this signal, i.e. the signal is just a queue that contains all
@@ -15,14 +17,15 @@ Task is a wrapped coroutine. You can create a task by pass a existing
 coroutine or a function. Task will run at next 'tick'. A tick is a
 single run of main loop, will describe below.
 
-All task are in a status: running, waiting, hold and ready. New task
+All task are in a status: `running`, `waiting`, `hold`, `ready` and `error`. New task
 will at ready status, so if you do not want this task to run, just set
 it to hold status. Only one task can at running state, other task may
-wait on a signal or another task (waiting), or get ready to run at
-next 'tick' (ready). If you don't want task to run anymore, you can
+wait on a signal or another task (`waiting`), or get ready to run at
+next 'tick' (`ready`). If you don't want task to run anymore, you can
 set it's status to hold, in this way task will not running, until you
 set it's status to ready. Hold is just a 'default' signal that can
-wait at, so hold is just a default waiting status.
+wait at, so hold is just a default waiting status. If a task has error,
+it will at `error` status, it can be restart later.
 
 There are some functions that you can operates tasks. These functions
 are export to lua-sched module, if you call them directly (without a
@@ -37,6 +40,7 @@ arguments you passed to wakeup will become the return value of
 functions that makes task waiting.
 
 Functions on tasks:
+
     - wait(signal, ...)
         wait on a signal, cancel from the signal it waited before (if
         any). (TODO how to wait multi-signal?)
@@ -72,6 +76,7 @@ context on them will be discard, they will accept arguments you pass
 to emit as return values.
 
 Functions on signals:
+
     - emit(...)
         wakeup all tasks waiting on this signal, run them immediately.
     - ready(...)
@@ -113,6 +118,7 @@ to restart() function.
 
 
 Functions of module:
+
     - poll(f)
         set a poll functions, used to do the real waiting. poll
         functions return true if next run is needed, or lopp must
@@ -139,8 +145,10 @@ A optional timer module can be found as a example to use lua-sched
 API, or you can use it as a real-life module. It support Windows/Unix
 environment.
 
-License:
+License
+-------
 Same as Lua, see COPYING.
 
-Improvement:
+Improvement
+-----------
 how to wait to multi signals?
