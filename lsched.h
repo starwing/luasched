@@ -26,6 +26,8 @@ typedef const char *lsc_Collect(lsc_Task *t, lua_State *from, lsc_Signal *delete
 
 
 LUALIB_API int luaopen_sched(lua_State *L);
+LUALIB_API int luaopen_sched_signal(lua_State *L);
+LUALIB_API int luaopen_sched_task(lua_State *L);
 LSC_API void lsc_install(lua_State *L);
 
 LSC_API lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz);
@@ -40,6 +42,7 @@ LSC_API lsc_Task *lsc_current(lua_State *L);
 LSC_API lsc_Task *lsc_maintask(lua_State *L);
 LSC_API lsc_Task *lsc_checktask(lua_State *L, int idx);
 LSC_API lsc_Task *lsc_testtask(lua_State *L, int idx);
+LSC_API int lsc_pushtask(lua_State *L, lsc_Task *t);
 LSC_API lsc_Signal *lsc_checksignal(lua_State *L, int idx);
 LSC_API lsc_Signal *lsc_testsignal(lua_State *L, int idx);
 LSC_API int lsc_pushcontext(lua_State *L, lsc_Task *t);
