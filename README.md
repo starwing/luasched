@@ -5,7 +5,9 @@ lua-sched is A C implemented Lua coroutine scheduler which implements
 a Lumen[1] like interface. It's designed to used to implement a
 coroutine based libuv binding.
 
-lua-sched has two object: signal and task. Signal is a object that
+[1]: https://github.com/xopxe/Lumen
+
+lua-sched has two object: `signal` and `task`. Signal is a object that
 task can wait on then, if signal is emit, all task wait on it will
 wakeup and get the argument you pass to signal. You can iterate tasks
 wait on this signal, i.e. the signal is just a queue that contains all
@@ -15,14 +17,15 @@ Task is a wrapped coroutine. You can create a task by pass a existing
 coroutine or a function. Task will run at next 'tick'. A tick is a
 single run of main loop, will describe below.
 
-All task are in a status: running, waiting, hold and ready. New task
+All task are in a status: `running`, `waiting`, `hold`, `ready` and `error`. New task
 will at ready status, so if you do not want this task to run, just set
 it to hold status. Only one task can at running state, other task may
-wait on a signal or another task (waiting), or get ready to run at
-next 'tick' (ready). If you don't want task to run anymore, you can
+wait on a signal or another task (`waiting`), or get ready to run at
+next 'tick' (`ready`). If you don't want task to run anymore, you can
 set it's status to hold, in this way task will not running, until you
 set it's status to ready. Hold is just a 'default' signal that can
-wait at, so hold is just a default waiting status.
+wait at, so hold is just a default waiting status. If a task has error,
+it will at `error` status, it can be restart later.
 
 There are some functions that you can operates tasks. These functions
 are export to lua-sched module, if you call them directly (without a
@@ -38,28 +41,28 @@ functions that makes task waiting.
 
 Functions on tasks:
 
-- delete()
+- `delete()`
     delete a task, free resources and never run it again.
-- wait(signal, ...)
+- `wait(signal, ...)`
     wait on a signal, cancel from the signal it waited before (if
     any). (TODO how to wait multi-signal?)
-- ready(...)
+- `ready(...)`
     schedule task to run next 'tick', cancel from any singal it
     waited (if any).
-- hold(...)
+- `hold(...)`
     task will cancel from signal it waited (if any), and doesn't
     run unless it's status changed.
-- wakeup(...)
+- `wakeup(...)`
     run task immediately. Cancel from any signal it waited (if
     any).
-- context()
+- `context()`
     if task is waiting, get the contexts passed to wait functions,
     or nothing if task is running.
-- join(task)
+- `join(task)`
     wait another task -- run when that task finished. if that task
     has no errors, return true plus the return value of that task,
     or return nil and a error string from that task.
-- status()
+- `status()`
     return the status of task, 'error', 'running', 'waiting',
     'ready' or 'hold'. if status is 'error', a extra error string
     is returned.
@@ -71,21 +74,21 @@ to emit as return values.
 
 Functions on signals:
 
-- emit(...)
+- `emit(...)`
     wakeup all tasks waiting on this signal, run them immediately.
-- ready(...)
+- `ready(...)`
     makes tasks waking on this signal run at next 'tick'.
-- one(...) (TODO a new name?)
+- `one(...)` (TODO a new name?)
     wakeup first task that waiting on this signal.
-- filter(f)
+- `filter(f)`
     run function f to all tasks, with it's context, function f can
     decide how to deal with tasks, e.g. wakeup it, hold it, ready
     it, or leave it untouched.
-- iter()
+- `iter()`
     return a iterator that iterates all tasks on this signals.
-- index(idx)
+- `index(idx)`
     get task at index idx, with it's contexts.
-- delete()
+- `delete()`
     delete a signal, wakeup all tasks with nil, "deleted". task
     can not wait on a deleted signal (will error out).
 
@@ -113,17 +116,17 @@ to restart() function.
 
 Functions of module:
 
-- poll(f)
+- `poll(f)`
     set a poll functions, used to do the real waiting. poll
     functions return true if next run is needed, or lopp must
     return otherwise.
-- once()
+- `once()`
     run poll functions once.
-- loop()
+- `loop()`
     start a event loop, unless poll functions return false.
-- errors()
+- `errors()`
     return a iterators if to iterates all error task.
-- collect(['delete'|'restart'|f])
+- `collect(['delete'|'restart'|f])`
     collect error string, if nothing or 'delete' is given, all
     error tasks will deleted, if restart is given, they will all
     restarted. if a function f is given, it will called on every
@@ -139,8 +142,10 @@ A optional timer module can be found as a example to use lua-sched
 API, or you can use it as a real-life module. It support Windows/Unix
 environment.
 
-License:
+License
+-------
 Same as Lua, see COPYING.
 
-Improvement:
+Improvement
+-----------
 how to wait to multi signals?
