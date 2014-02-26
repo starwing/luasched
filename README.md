@@ -37,34 +37,32 @@ arguments you passed to wakeup will become the return value of
 functions that makes task waiting.
 
 Functions on tasks:
-    - wait(signal, ...)
-        wait on a signal, cancel from the signal it waited before (if
-        any). (TODO how to wait multi-signal?)
-    - ready(...)
-        schedule task to run next 'tick', cancel from any singal it
-        waited (if any).
-    - hold(...)
-        task will cancel from signal it waited (if any), and doesn't
-        run unless it's status changed.
-    - wakeup(...)
-        run task immediately. Cancel from any signal it waited (if
-        any).
-    - context(...)
-        if task is waiting, get the contexts passed to wait functions,
-        or nothing if task is running.
-    - join(task)
-        wait another task -- run when that task finished. if that task
-        has no errors, return true plus the return value of that task,
-        or return nil and a error string from that task.
-    - status()
-        return the status of task, 'error', 'running', 'waiting',
-        'ready' or 'hold'. if status is 'error', a extra error string
-        is returned.
-    - restart(...)
-        restart the task, only can restart a 'error' task, other
-        status task can not restart (will throw a error).
-    - delete()
-        delete a task, free resources and never run it again.
+
+- delete()
+    delete a task, free resources and never run it again.
+- wait(signal, ...)
+    wait on a signal, cancel from the signal it waited before (if
+    any). (TODO how to wait multi-signal?)
+- ready(...)
+    schedule task to run next 'tick', cancel from any singal it
+    waited (if any).
+- hold(...)
+    task will cancel from signal it waited (if any), and doesn't
+    run unless it's status changed.
+- wakeup(...)
+    run task immediately. Cancel from any signal it waited (if
+    any).
+- context()
+    if task is waiting, get the contexts passed to wait functions,
+    or nothing if task is running.
+- join(task)
+    wait another task -- run when that task finished. if that task
+    has no errors, return true plus the return value of that task,
+    or return nil and a error string from that task.
+- status()
+    return the status of task, 'error', 'running', 'waiting',
+    'ready' or 'hold'. if status is 'error', a extra error string
+    is returned.
 
 Signal is a queue that hold any tasks wait on it. You can access any
 task that wait on it. You can wake up them all. If you do so, any
@@ -72,23 +70,24 @@ context on them will be discard, they will accept arguments you pass
 to emit as return values.
 
 Functions on signals:
-    - emit(...)
-        wakeup all tasks waiting on this signal, run them immediately.
-    - ready(...)
-        makes tasks waking on this signal run at next 'tick'.
-    - one(...) (TODO a new name?)
-        wakeup first task that waiting on this signal.
-    - filter(f)
-        run function f to all tasks, with it's context, function f can
-        decide how to deal with tasks, e.g. wakeup it, hold it, ready
-        it, or leave it untouched.
-    - iter()
-        return a iterator that iterates all tasks on this signals.
-    - index(idx)
-        get task at index idx, with it's contexts.
-    - delete()
-        delete a signal, wakeup all tasks with nil, "deleted". task
-        can not wait on a deleted signal (will error out).
+
+- emit(...)
+    wakeup all tasks waiting on this signal, run them immediately.
+- ready(...)
+    makes tasks waking on this signal run at next 'tick'.
+- one(...) (TODO a new name?)
+    wakeup first task that waiting on this signal.
+- filter(f)
+    run function f to all tasks, with it's context, function f can
+    decide how to deal with tasks, e.g. wakeup it, hold it, ready
+    it, or leave it untouched.
+- iter()
+    return a iterator that iterates all tasks on this signals.
+- index(idx)
+    get task at index idx, with it's contexts.
+- delete()
+    delete a signal, wakeup all tasks with nil, "deleted". task
+    can not wait on a deleted signal (will error out).
 
 
 There are some global functions to used in lua-sched. Used to run a
@@ -113,22 +112,23 @@ to restart() function.
 
 
 Functions of module:
-    - poll(f)
-        set a poll functions, used to do the real waiting. poll
-        functions return true if next run is needed, or lopp must
-        return otherwise.
-    - once()
-        run poll functions once.
-    - loop()
-        start a event loop, unless poll functions return false.
-    - errors()
-        return a iterators if to iterates all error task.
-    - collect(['delete'|'restart'|f])
-        collect error string, if nothing or 'delete' is given, all
-        error tasks will deleted, if restart is given, they will all
-        restarted. if a function f is given, it will called on every
-        task with task and error string as it's arguments. it can
-        restart or delete tasks.
+
+- poll(f)
+    set a poll functions, used to do the real waiting. poll
+    functions return true if next run is needed, or lopp must
+    return otherwise.
+- once()
+    run poll functions once.
+- loop()
+    start a event loop, unless poll functions return false.
+- errors()
+    return a iterators if to iterates all error task.
+- collect(['delete'|'restart'|f])
+    collect error string, if nothing or 'delete' is given, all
+    error tasks will deleted, if restart is given, they will all
+    restarted. if a function f is given, it will called on every
+    task with task and error string as it's arguments. it can
+    restart or delete tasks.
 
 lua-sched will exports some C API to help used on other C module. They
 are listed and documents at lua-sched.h, you can link your module with
