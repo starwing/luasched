@@ -25,10 +25,8 @@ lsc_State *lsc_state(lua_State *L) {
     lsc_State *s;
     lua_rawgetp(L, LUA_REGISTRYINDEX, (void*)LSC_MAIN_STATE);
     s = (lsc_State*)lua_touserdata(L, -1);
-    if (s != NULL) { 
-        lua_pop(L, 1);
-        return s;
-    }
+    lua_pop(L, 1);
+    if (s != NULL) return s;
     s = (lsc_State*)lua_newuserdata(L, sizeof(lsc_State));
     s->main = NULL;
     s->ud = NULL;
@@ -187,7 +185,7 @@ lsc_Task *lsc_next(lsc_Signal *s, lsc_Task *curr) {
 
 lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz) {
     lsc_Task *t = (lsc_Task*)lua_newuserdata(L, sizeof(lsc_Task) + extrasz);
-    luaL_setmetatable(L, "sched.signal");
+    luaL_setmetatable(L, "sched.task");
     t->S = lsc_state(L);
     t->L = coro;
     t->waitat = NULL;
@@ -339,9 +337,12 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
         adjust_stack(t->L, nargs, top);
     res = lua_resume(t->L, from, nargs);
     if (res == LUA_OK || res != LUA_YIELD) {
+        t->waitat = NULL; /* manually drop 'running' tag */
+        lsc_hold(t, 0); /* and really drop 'running' tag */
         lsc_deletetask(t, from);
         return res == LUA_OK;
     }
+    assert(lsc_status(t) != lsc_Running);
     return 1;
 }
 
@@ -365,7 +366,10 @@ int lsc_emit(lsc_Signal *s, lua_State *from, int nargs) {
 /* lua type maintains */
 
 lsc_Task *lsc_checktask(lua_State *L, int idx) {
-    return (lsc_Task*)luaL_checkudata(L, idx, "sched.task");
+    lsc_Task *t = (lsc_Task*)luaL_checkudata(L, idx, "sched.task");
+    if (t->L == NULL)
+        luaL_argerror(L, idx, "deleted task got");
+    return t;
 }
 
 lsc_Task *lsc_testtask(lua_State *L, int idx) {
@@ -387,7 +391,10 @@ int lsc_pushtask(lua_State *L, lsc_Task *t) {
 }
 
 lsc_Signal *lsc_checksignal(lua_State *L, int idx) {
-    return (lsc_Signal*)luaL_checkudata(L, idx, "sched.signal");
+    lsc_Signal *s = (lsc_Signal*)luaL_checkudata(L, idx, "sched.signal");
+    if (s->prev == NULL)
+        luaL_argerror(L, idx, "deleted signal got");
+    return s;
 }
 
 lsc_Signal *lsc_testsignal(lua_State *L, int idx) {
@@ -404,7 +411,9 @@ static int Ltask_new(lua_State *L) {
     coro = lua_newthread(L);
     lsc_hold(lsc_newtask(L, coro, 0), 0);
     lua_insert(L, 1);
+    lua_pop(L, 1); /* remove coroutine */
     lua_xmove(L, coro, top);
+    assert(lua_gettop(L) == 1);
     return 1;
 }
 
@@ -419,6 +428,8 @@ static int Ltask_tostring(lua_State *L) {
     lsc_Task *t = lsc_testtask(L, 1);
     if (t == NULL)
         luaL_tolstring(L, -1, NULL);
+    else if (t->L == NULL)
+        lua_pushfstring(L, "sched.task(deleted): %p", t);
     else
         lua_pushfstring(L, "sched.task: %p", t);
     return 1;
@@ -554,11 +565,13 @@ static int Lsignal_delete(lua_State *L) {
 }
 
 static int Lsignal_tostring(lua_State *L) {
-    lsc_Signal *t = lsc_testsignal(L, 1);
-    if (t == NULL)
+    lsc_Signal *s = lsc_testsignal(L, 1);
+    if (s == NULL)
         luaL_tolstring(L, -1, NULL);
+    else if (s->prev == NULL)
+        lua_pushfstring(L, "sched.signal(deleted): %p", s);
     else
-        lua_pushfstring(L, "sched.signal: %p", t);
+        lua_pushfstring(L, "sched.signal: %p", s);
     return 1;
 }
 
