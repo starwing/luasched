@@ -169,9 +169,8 @@ lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz) {
 }
 
 static void wakeup_joins(lsc_Task *t, lua_State *from) {
-    int nrets = 2;
-    int stat = lua_status(t->L);
     lsc_Signal *s = &t->joined;
+    int stat = lua_status(t->L);
     /* mark as zombie */
     t->waitat = NULL;
     t->head.prev = t->head.next = NULL;
@@ -179,6 +178,7 @@ static void wakeup_joins(lsc_Task *t, lua_State *from) {
     if (from == NULL)
         from = t->L;
     while ((t = lsc_next(s, NULL)) != NULL) {
+        int nrets = 2;
         switch (stat) {
         case LUA_YIELD:
             lua_pushnil(from);
@@ -577,7 +577,7 @@ static int Ltask_hold(lua_State *L) {
 }
 
 static int Ltask_wakeup(lua_State *L) {
-    int top = lua_gettop(L) - 1;
+    int res, top = lua_gettop(L) - 1;
     lsc_Task *t = lsc_checktask(L, 1);
     lsc_Status s;
     if (top != 0) { /* replace context? */
@@ -589,17 +589,20 @@ static int Ltask_wakeup(lua_State *L) {
     s = lsc_status(t);
     assert(s != lsc_Running && s != lsc_Dead);
     lua_pushboolean(L, s != lsc_Error);
-    return lsc_getcontext(L, t) + 1;
+    res = lsc_getcontext(L, t) + 1;
+    if (s == lsc_Finished)
+        lsc_deletetask(t, L);
+    return res;
 }
 
 static int Ltask_context(lua_State *L) {
-    int arg, top = lua_gettop(L);
-    lsc_Task *t = default_task(L, &arg);
-    if (arg <= top) { /* set context */
-        if (lsc_status(t) == lsc_Running)
-            return 0;
+    int top = lua_gettop(L) - 1;
+    lsc_Task *t = lsc_checktask(L, 1);
+    if (lsc_status(t) == lsc_Running)
+        return 0;
+    if (top > 0) { /* set context */
         lua_settop(t->L, 0);
-        lua_xmove(L, t->L, top - arg + 1);
+        lua_xmove(L, t->L, top);
         return 0;
     }
     return lsc_getcontext(L, t);

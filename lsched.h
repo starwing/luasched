@@ -175,6 +175,10 @@ LSC_API int lsc_pushtask(lua_State *L, lsc_Task *t);
 
 /* push the context of task t onto lua stack, preivous context will be
  * clean up.
+ * NOTE that contexts at lua stack L will NOT poped, this allow you
+ * set many tasks' context without copy contexts on L.
+ * if you needn't retain contexts on lua stack L, use `lua_xmove`
+ * instead, it may faster than this routine.
  * does nothing if t is running, dead or finished */
 LSC_API int lsc_setcontext(lua_State *L, lsc_Task *t, int nargs);
 
