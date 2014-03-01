@@ -47,7 +47,8 @@ add_test("wait_test", function()
       assert(... == "ret")
    end)
    jt:join(t)
-   assert(t:wakeup "wait")
+   local res, ret = t:wakeup "wait"
+   assert(res and ret == "ret")
 end)
 
 if arg[1] then

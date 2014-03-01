@@ -579,14 +579,17 @@ static int Ltask_hold(lua_State *L) {
 static int Ltask_wakeup(lua_State *L) {
     int top = lua_gettop(L) - 1;
     lsc_Task *t = lsc_checktask(L, 1);
+    lsc_Status s;
     if (top != 0) { /* replace context? */
         if (lua_status(t->L) == LUA_OK) /* first run? */
             lua_settop(t->L, 1); /* clear original context */
         lua_xmove(L, t->L, top);
     }
-    /* push result of task */
-    lua_pushboolean(L, lsc_wakeup(t, L, top == 0 ? -1 : top));
-    return 1;
+    lsc_wakeup(t, L, top == 0 ? -1 : top);
+    s = lsc_status(t);
+    assert(s != lsc_Running && s != lsc_Dead);
+    lua_pushboolean(L, s != lsc_Error);
+    return lsc_getcontext(L, t) + 1;
 }
 
 static int Ltask_context(lua_State *L) {
