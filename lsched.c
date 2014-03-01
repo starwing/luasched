@@ -496,6 +496,124 @@ lsc_Signal *lsc_testsignal(lua_State *L, int idx) {
 }
 
 
+/* signal module interface */
+
+static int Lsignal_new(lua_State *L) {
+    lsc_newsignal(L, 0);
+    return 1;
+}
+
+static int Lsignal_delete(lua_State *L) {
+    lsc_Signal *s = lsc_testsignal(L, 1);
+    if (s != NULL) lsc_deletesignal(s, L);
+    return 0;
+}
+
+static int Lsignal_tostring(lua_State *L) {
+    lsc_Signal *s = lsc_testsignal(L, 1);
+    if (s == NULL)
+        luaL_tolstring(L, -1, NULL);
+    else if (s->prev == NULL)
+        lua_pushfstring(L, "sched.signal(deleted): %p", s);
+    else
+        lua_pushfstring(L, "sched.signal: %p", s);
+    return 1;
+}
+
+static int Lsignal_emit(lua_State *L) {
+    lsc_Task *t = NULL;
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    int top = lua_gettop(L) - 1;
+    while ((t = lsc_next(s, t)) != NULL)
+        lsc_setcontext(L, t, top);
+    lua_pushboolean(L, lsc_emit(s, L, top));
+    return 1;
+}
+
+static int Lsignal_ready(lua_State *L) {
+    lsc_Task *t = NULL;
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    int top = lua_gettop(L) - 1;
+    while ((t = lsc_next(s, t)) != NULL) {
+        lsc_setcontext(L, t, top);
+        lsc_ready(t, top);
+    }
+    return 1;
+}
+
+static int Lsignal_one(lua_State *L) {
+    lsc_Task *t;
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    int top = lua_gettop(L) - 1;
+    if ((t = lsc_next(s, NULL)) != NULL) {
+        lsc_setcontext(L, t, top);
+        lsc_wakeup(t, L, top);
+    }
+    return 1;
+}
+
+static int Lsignal_filter(lua_State *L) {
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    lsc_Task *t = lsc_next(s, NULL);
+    lua_settop(L, 2);
+    while (t != NULL) {
+        int n;
+        lsc_Task *next = lsc_next(s, t);
+        lsc_pushtask(L, t);
+        n = lsc_getcontext(L, t) + 1;
+        lua_call(L, n, 0);
+        t = next;
+    }
+    lua_settop(L, 1);
+    return 1;
+}
+
+static int Lsignal_next(lua_State *L) {
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    lsc_Task *t = lua_isnoneornil(L, 2) ? NULL :
+        lsc_checktask(L, 2);
+    return lsc_pushtask(L, lsc_next(s, t));
+}
+
+static int Lsignal_count(lua_State *L) {
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    lua_pushinteger(L, lsc_count(s));
+    return 1;
+}
+
+static int Lsignal_index(lua_State *L) {
+    lsc_Signal *s = lsc_checksignal(L, 1);
+    int idx = luaL_optint(L, 2, 1);
+    if (idx > 0) --idx;
+    return lsc_pushtask(L, lsc_index(s, idx));
+}
+
+LUALIB_API int luaopen_sched_signal(lua_State *L) {
+    luaL_Reg libs[] = {
+        { "__gc", Lsignal_delete },
+        { "__tostring", Lsignal_tostring },
+#define ENTRY(name) { #name, Lsignal_##name }
+        ENTRY(new),
+        ENTRY(delete),
+        ENTRY(emit),
+        ENTRY(ready),
+        ENTRY(one),
+        ENTRY(filter),
+        ENTRY(next),
+        ENTRY(count),
+        ENTRY(index),
+#undef  ENTRY
+        { NULL, NULL }
+    };
+    if (luaL_newmetatable(L, "sched.signal")) {
+        luaL_setfuncs(L, libs, 0);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "__index");
+    }
+    return 1;
+}
+
+
 /* task module interface */
 
 static int Ltask_new(lua_State *L) {
@@ -664,131 +782,6 @@ LUALIB_API int luaopen_sched_task(lua_State *L) {
 }
 
 
-/* signal module interface */
-
-static int Lsignal_new(lua_State *L) {
-    lsc_newsignal(L, 0);
-    return 1;
-}
-
-static int Lsignal_delete(lua_State *L) {
-    lsc_Signal *s = lsc_testsignal(L, 1);
-    if (s != NULL) lsc_deletesignal(s, L);
-    return 0;
-}
-
-static int Lsignal_tostring(lua_State *L) {
-    lsc_Signal *s = lsc_testsignal(L, 1);
-    if (s == NULL)
-        luaL_tolstring(L, -1, NULL);
-    else if (s->prev == NULL)
-        lua_pushfstring(L, "sched.signal(deleted): %p", s);
-    else
-        lua_pushfstring(L, "sched.signal: %p", s);
-    return 1;
-}
-
-static int Lsignal_emit(lua_State *L) {
-    lsc_Task *t = NULL;
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    int top = lua_gettop(L) - 1;
-    while ((t = lsc_next(s, t)) != NULL)
-        lsc_setcontext(L, t, top);
-    lua_pushboolean(L, lsc_emit(s, L, top));
-    return 1;
-}
-
-static int Lsignal_ready(lua_State *L) {
-    lsc_Task *t = NULL;
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    int top = lua_gettop(L) - 1;
-    while ((t = lsc_next(s, t)) != NULL) {
-        lsc_setcontext(L, t, top);
-        lsc_ready(t, top);
-    }
-    return 1;
-}
-
-static int Lsignal_one(lua_State *L) {
-    lsc_Task *t;
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    int top = lua_gettop(L) - 1;
-    if ((t = lsc_next(s, NULL)) != NULL) {
-        lsc_setcontext(L, t, top);
-        lsc_wakeup(t, L, top);
-    }
-    return 1;
-}
-
-static int Lsignal_filter(lua_State *L) {
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    lsc_Task *t = lsc_next(s, NULL);
-    lua_settop(L, 2);
-    while (t != NULL) {
-        int n;
-        lsc_Task *next = lsc_next(s, t);
-        lsc_pushtask(L, t);
-        n = lsc_getcontext(L, t) + 1;
-        lua_call(L, n, 0);
-        t = next;
-    }
-    lua_settop(L, 1);
-    return 1;
-}
-
-static int aux_iter(lua_State *L) {
-    lsc_Signal *s = lua_touserdata(L, 1);
-    lsc_Task *t = lua_isnoneornil(L, 2) ? NULL :
-        lsc_testtask(L, 1);
-    return lsc_pushtask(L, lsc_next(s, t));
-}
-
-static int Lsignal_iter(lua_State *L) {
-    lsc_checksignal(L, 1);
-    lua_pushcfunction(L, aux_iter);
-    lua_pushvalue(L, 1);
-    return 2;
-}
-
-static int Lsignal_count(lua_State *L) {
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    lua_pushinteger(L, lsc_count(s));
-    return 1;
-}
-
-static int Lsignal_index(lua_State *L) {
-    lsc_Signal *s = lsc_checksignal(L, 1);
-    int idx = luaL_optint(L, 2, 1);
-    if (idx > 0) --idx;
-    return lsc_pushtask(L, lsc_index(s, idx));
-}
-
-LUALIB_API int luaopen_sched_signal(lua_State *L) {
-    luaL_Reg libs[] = {
-        { "__gc", Lsignal_delete },
-        { "__tostring", Lsignal_tostring },
-#define ENTRY(name) { #name, Lsignal_##name }
-        ENTRY(new),
-        ENTRY(delete),
-        ENTRY(emit),
-        ENTRY(ready),
-        ENTRY(one),
-        ENTRY(filter),
-        ENTRY(iter),
-        ENTRY(count),
-        ENTRY(index),
-#undef  ENTRY
-        { NULL, NULL }
-    };
-    if (luaL_newmetatable(L, "sched.signal")) {
-        luaL_setfuncs(L, libs, 0);
-        lua_pushvalue(L, -1);
-        lua_setfield(L, -2, "__index");
-    }
-    return 1;
-}
-
-
 /* global module interface */
 
 typedef struct poll_ctx {
@@ -837,10 +830,16 @@ static int Lloop(lua_State *L) {
 }
 
 static int Lerrors(lua_State *L) {
-    lsc_State *s = lsc_state(L);
-    lua_pushcfunction(L, aux_iter);
-    lua_pushlightuserdata(L, &s->error);
-    return 2;
+    if (lua_gettop(L) == 0) {
+        lua_pushcfunction(L, Lerrors);
+        return 1;
+    }
+    else {
+        lsc_State *s = lsc_state(L);
+        lsc_Task *t = lua_isnoneornil(L, -1) ? NULL :
+            lsc_checktask(L, -1);
+        return lsc_pushtask(L, lsc_next(&s->error, t));
+    }
 }
 
 static int aux_collect(lsc_Task *t, lua_State *from, lsc_Signal *deleted, void *ud) {
