@@ -247,7 +247,19 @@ LSC_API int lsc_join(lsc_Task *t, lsc_Task *jointo, int nctx);
  */
 int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs);
 
-/* emit a signal, wake up all tasks wait on it */
+/* emit a signal, wake up all tasks wait on it.
+ * 
+ * if nargs < 0, all tasks context will be the return values of waked
+ * up tasks. if from != NULL and nargs > 0, nargs values at from will
+ * replaced as tasks context and returned. after that, these values
+ * will poped from state.
+ *
+ * if a task wait to s after wakeup, it will not wakeup again. you
+ * should call emit again to wakeup it. i.e. every tasks on signal s
+ * only wakeup once.
+ *
+ * return the count of waked up tasks.
+ */
 LSC_API int lsc_emit(lsc_Signal *s, lua_State *from, int nargs);
 
 

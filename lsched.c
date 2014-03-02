@@ -58,13 +58,16 @@ static void queue_append(lsc_Signal *head, lsc_Signal *to) {
     }
 }
 
-static void queue_merge(lsc_Signal *head, lsc_Signal *to) {
+static void queue_replace(lsc_Signal *head, lsc_Signal *to) {
     if (to->prev) {
-        to->prev->next = head->next;
-        head->next->prev = to->prev;
-        to->prev = head->prev;
-        to->prev->next = to;
+        head->prev = to->prev;
+        head->prev->next = head;
+        head->next = to->next;
+        head->next->prev = head;
+        to->prev = to->next = NULL; /* invalid queue */
     }
+    else 
+        head->prev = head->next = head;
 }
 
 lsc_Signal *lsc_newsignal(lua_State *L, size_t extrasz) {
@@ -78,11 +81,8 @@ lsc_Signal *lsc_newsignal(lua_State *L, size_t extrasz) {
 void lsc_deletesignal(lsc_Signal *s, lua_State *from) {
     lsc_Signal removed;
     lsc_Task *t = NULL;
-    lsc_initsignal(&removed);
-    queue_append(&removed, s);
-    queue_removeself(s);
-    /* invalid signal */
-    s->prev = s->next = NULL;
+    /* replace and invalid signal */
+    queue_replace(&removed, s);
     while ((t = lsc_next(&removed, NULL)) != NULL) {
         lua_pushnil(t->L);
         lua_pushstring(t->L, "signal deleted");
@@ -168,48 +168,53 @@ lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz) {
     return t;
 }
 
-static void wakeup_joins(lsc_Task *t, lua_State *from) {
-    lsc_Signal *s = &t->joined;
-    int stat = lua_status(t->L);
-    /* mark as zombie */
-    t->waitat = NULL;
-    t->head.prev = t->head.next = NULL;
-    /* wakeup joined tasks */
-    if (from == NULL)
-        from = t->L;
-    while ((t = lsc_next(s, NULL)) != NULL) {
-        int nrets = 2;
-        switch (stat) {
-        case LUA_YIELD:
-            lua_pushnil(from);
-            lua_pushstring(from, "task deleted");
-            nrets += lsc_getcontext(from, t);
-            break;
-        case LUA_OK:
-            lua_pushboolean(from, 1);
-            nrets += lsc_getcontext(from, t) - 1;
-            break;
-        default:
-            lua_pushnil(from);
-            lua_pushvalue(t->L, 1);
-            lua_xmove(t->L, from, 1);
-            break;
-        }
-        lsc_wakeup(t, from, nrets);
-    }
+void *lsc_taskpointer(lsc_Task *t) {
+    return (void*)(t + 1);
 }
 
+static void wakeup_joins(lsc_Task *t, lua_State *from) {
+    lsc_Signal joined;
+    int nrets = 2, stat = lua_status(t->L);
+    if (from == NULL)
+        from = t->L;
+    /* replace and invalid joined queue */
+    t->waitat = NULL;
+    queue_removeself(&t->head);
+    lsc_initsignal(&t->head);
+    if (t->joined.prev == NULL)
+        return;
+    queue_replace(&joined, &t->joined);
+    /* calc return values */
+    switch (stat) {
+    case LUA_YIELD:
+        lua_pushnil(from);
+        lua_pushstring(from, "task deleted");
+        nrets += lsc_getcontext(from, t);
+        break;
+    case LUA_OK:
+        lua_pushboolean(from, 1);
+        nrets += lsc_getcontext(from, t) - 1;
+        break;
+    default:
+        lua_pushnil(from);
+        lua_pushvalue(t->L, 1);
+        if (t->L != from)
+            lua_xmove(t->L, from, 1);
+        break;
+    }
+    /* setup return values */
+    lsc_emit(&joined, from, nrets);
+    assert(joined.prev == &joined);
+}
 
 int lsc_deletetask(lsc_Task *t, lua_State *from) {
     lsc_Status s = lsc_status(t);
     if (s == lsc_Dead || s == lsc_Running)
         return 0;
-    /* avoid task run */
-    lsc_hold(t, 0);
+    /* invalid task and wake up joined tasks */
+    wakeup_joins(t, from);
     /* remove it from task box */
     unregister_task(t);
-    /* wake up joined tasks */
-    wakeup_joins(t, from);
     /* mark task as dead */
     t->L = NULL;
     return 1;
@@ -229,7 +234,10 @@ int lsc_setcontext(lua_State *L, lsc_Task *t, int nargs) {
     lsc_Status s = lsc_status(t);
     if (s == lsc_Dead || s == lsc_Running)
         return 0;
-    lua_settop(t->L, 0);
+    if (lua_status(t->L) == LUA_OK) /* initial task? */
+        lua_settop(t->L, 1);
+    else
+        lua_settop(t->L, 0);
     return copy_stack(L, t->L, nargs);
 }
 
@@ -237,7 +245,7 @@ int lsc_getcontext(lua_State *L, lsc_Task *t) {
     lsc_Status s = lsc_status(t);
     if (s == lsc_Dead || s == lsc_Running)
         return 0;
-    if (s == lsc_Finished) {
+    if (s == lsc_Error) {
         assert(lua_isstring(t->L, -1));
         lua_pushvalue(t->L, -1);
         lua_xmove(t->L, L, 1);
@@ -249,14 +257,14 @@ int lsc_getcontext(lua_State *L, lsc_Task *t) {
 lsc_Status lsc_status(lsc_Task *t) {
     if (t->L == NULL)
         return lsc_Dead;
-    else if (t->head.prev == NULL)
-        return lsc_Finished;
     else if (t->waitat == &t->S->running)
         return lsc_Running;
     else if (t->waitat == &t->S->ready)
         return lsc_Ready;
     else if (t->waitat == &t->S->error)
         return lsc_Error;
+    else if (t->joined.prev == NULL)
+        return lsc_Finished;
     else if (t->waitat == NULL)
         return lsc_Hold;
     return lsc_Waitting;
@@ -268,19 +276,20 @@ int lsc_error(lsc_Task *t, const char *errmsg) {
     if (s == lsc_Running) return luaL_error(t->L, errmsg);
     lua_settop(t->L, 0);
     lua_pushstring(t->L, errmsg); /* context */
-    queue_append(&t->head, &t->S->error);
+    t->waitat = &t->S->error;
+    queue_append(&t->head, t->waitat);
     return 1;
 }
 
 int lsc_wait(lsc_Task *t, lsc_Signal *s, int nctx) {
     lsc_Status stat = lsc_status(t);
+    t->waitat = s;
     if (s == NULL) {
         queue_removeself(&t->head);
         lsc_initsignal(&t->head);
     }
     else
-        queue_append(&t->head, s);
-    t->waitat = s;
+        queue_append(&t->head, t->waitat);
     if (stat == lsc_Running)
         return lua_yield(t->L, nctx);
     return 0;
@@ -289,7 +298,8 @@ int lsc_wait(lsc_Task *t, lsc_Signal *s, int nctx) {
 int lsc_ready(lsc_Task *t, int nctx) {
     if (lsc_status(t) == lsc_Running)
         return 0;
-    queue_append(&t->head, &t->S->ready);
+    t->waitat = &t->S->ready;
+    queue_append(&t->head, t->waitat);
     return 1;
 }
 
@@ -298,6 +308,7 @@ int lsc_hold(lsc_Task *t, int nctx) {
         return 0;
     queue_removeself(&t->head);
     lsc_initsignal(&t->head);
+    t->waitat = NULL;
     return 1;
 }
 
@@ -309,7 +320,8 @@ int lsc_join(lsc_Task *t, lsc_Task *jointo, int nctx) {
             sj == lsc_Finished ||
             sj == lsc_Dead)
         return 0;
-    queue_append(&t->head, &jointo->joined);
+    t->waitat = &jointo->joined;
+    queue_append(&t->head, t->waitat);
     return 1;
 }
 
@@ -328,10 +340,9 @@ static void adjust_stack(lua_State *L, int top, int nargs) {
 int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
     lsc_Status s = lsc_status(t);
     int res, top;
-    if (s == lsc_Dead || s == lsc_Running)
-        return 0;
-    queue_append(&t->head, &t->S->running);
+    if (s <= 0) return 0;
     t->waitat = &t->S->running;
+    queue_append(&t->head, t->waitat);
     res = lua_status(t->L);
     top = lua_gettop(t->L);
     if (nargs < 0) { /* nargs defaults all stack values */
@@ -344,7 +355,7 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
         adjust_stack(t->L, nargs, top);
     res = lua_resume(t->L, from, nargs);
     if (res == LUA_OK || res != LUA_YIELD) {
-        /* call joined tasks */
+        /* invaliad task and call joined tasks */
         wakeup_joins(t, from);
         if (res != LUA_OK) {
             /* setup error message as context */
@@ -353,7 +364,8 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
             lua_settop(t->L, 0);
             lua_pushstring(t->L, errmsg);
             /* append to error list if error out */
-            queue_append(&t->head, &t->S->error);
+            t->waitat = &t->S->error;
+            queue_append(&t->head, t->waitat);
             return 0;
         }
     }
@@ -364,17 +376,21 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
 
 int lsc_emit(lsc_Signal *s, lua_State *from, int nargs) {
     int n = 0;
-    lsc_Task *t = NULL;
+    lsc_Task *t;
     lsc_Signal wait_again;
     lsc_initsignal(&wait_again);
-    while ((t = lsc_next(s, t)) != NULL) {
+    while ((t = lsc_next(s, NULL)) != NULL) {
         assert(lsc_status(t) != lsc_Running);
+        if (from && nargs > 0)
+            lsc_setcontext(from, t, nargs);
         lsc_wakeup(t, from, nargs);
         if (t->waitat == s)
             queue_append(&t->head, &wait_again);
         ++n;
     }
-    queue_merge(&wait_again, s);
+    queue_replace(s, &wait_again);
+    if (from && nargs > 0)
+        lua_pop(from, nargs);
     return n;
 }
 
@@ -401,7 +417,8 @@ lsc_Task *lsc_maintask(lua_State *L) {
     s->main = lsc_newtask(L, mL, 0);
     lua_pop(L, 2);
     /* main task is always treats as running */
-    queue_append(&s->main->head, &s->running);
+    s->main->waitat = &s->running;
+    queue_append(&s->main->head, s->main->waitat);
     return s->main;
 }
 
@@ -444,7 +461,7 @@ int lsc_once(lsc_State *s, lua_State *from) {
         if (t->waitat == &s->ready)
             queue_append(&t->head, &ready_again);
     }
-    s->ready = ready_again;
+    queue_replace(&s->ready, &ready_again);
     if (s->poll != NULL)
         return s->poll(s, from, s->ud);
     return lsc_next(&s->ready, NULL) != NULL;
@@ -461,7 +478,7 @@ void lsc_loop(lsc_State *s, lua_State *from) {
 lsc_Task *lsc_checktask(lua_State *L, int idx) {
     lsc_Task *t = (lsc_Task*)luaL_checkudata(L, idx, "sched.task");
     if (t->L == NULL)
-        luaL_argerror(L, idx, "deleted task got");
+        luaL_argerror(L, idx, "got deleted task");
     return t;
 }
 
@@ -487,7 +504,7 @@ int lsc_pushtask(lua_State *L, lsc_Task *t) {
 lsc_Signal *lsc_checksignal(lua_State *L, int idx) {
     lsc_Signal *s = (lsc_Signal*)luaL_checkudata(L, idx, "sched.signal");
     if (s->prev == NULL)
-        luaL_argerror(L, idx, "deleted signal got");
+        luaL_argerror(L, idx, "got deleted signal");
     return s;
 }
 
@@ -521,22 +538,20 @@ static int Lsignal_tostring(lua_State *L) {
 }
 
 static int Lsignal_emit(lua_State *L) {
-    lsc_Task *t = NULL;
     lsc_Signal *s = lsc_checksignal(L, 1);
     int top = lua_gettop(L) - 1;
-    while ((t = lsc_next(s, t)) != NULL)
-        lsc_setcontext(L, t, top);
-    lua_pushboolean(L, lsc_emit(s, L, top));
+    lua_pushboolean(L, lsc_emit(s, L, top == 0 ? -1 : top));
     return 1;
 }
 
 static int Lsignal_ready(lua_State *L) {
-    lsc_Task *t = NULL;
+    lsc_Task *t;
     lsc_Signal *s = lsc_checksignal(L, 1);
     int top = lua_gettop(L) - 1;
-    while ((t = lsc_next(s, t)) != NULL) {
+    while ((t = lsc_next(s, NULL)) != NULL) {
         lsc_setcontext(L, t, top);
         lsc_ready(t, top);
+        assert(t->waitat != s);
     }
     return 1;
 }
