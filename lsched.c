@@ -423,27 +423,28 @@ lsc_Task *lsc_maintask(lua_State *L) {
 }
 
 const char *lsc_collect(lua_State *L, lsc_State *s, lsc_Collect *f, void *ud) {
-    lsc_Signal deleted;
+    lsc_Signal curr_error;
     luaL_Buffer b;
     lsc_Task *t;
     luaL_buffinit(L, &b);
-    lsc_initsignal(&deleted);
-    while ((t = lsc_next(&s->error, NULL)) != NULL) {
+    queue_replace(&curr_error, &s->error);
+    lsc_initsignal(&s->error);
+    while ((t = lsc_next(&curr_error, NULL)) != NULL) {
         lua_pushfstring(L, "task(%p): ", t);
         luaL_addvalue(&b);
-        if (f != NULL && f(t, L, &deleted, ud))
+        if (f != NULL && f(t, L, ud))
             luaL_addvalue(&b);
         else {
             assert(lua_isstring(t->L, -1));
             lua_xmove(t->L, L, 1);
             luaL_addvalue(&b);
-            queue_append(&t->head, &deleted);
+            lsc_deletetask(t, L);
         }
+        if (t->L != NULL)
+            queue_append(&t->head, &s->error);
         luaL_addchar(&b, '\n');
     }
     luaL_pushresult(&b);
-    while ((t = lsc_next(&deleted, NULL)) != NULL)
-        lsc_deletetask(t, L);
     return lua_tostring(L, -1);
 }
 
@@ -863,8 +864,7 @@ static int Lerrors(lua_State *L) {
     }
 }
 
-static int aux_collect(lsc_Task *t, lua_State *from, lsc_Signal *deleted, void *ud) {
-    /* XXX how to delete task here? */
+static int aux_collect(lsc_Task *t, lua_State *from, void *ud) {
     lua_pushvalue(from, 1);
     lsc_pushtask(from, t);
     lua_call(from, 1, 1);
@@ -876,11 +876,12 @@ static int aux_collect(lsc_Task *t, lua_State *from, lsc_Signal *deleted, void *
 
 static int Lcollect(lua_State *L) {
     lsc_State *s = lsc_state(L);
+    if (s->error.prev == &s->error)
+        return 0; /* no errors */
     if (lua_isnoneornil(L, 1)) {
         lsc_collect(L, s, NULL, NULL);
         return 1;
     }
-    luaL_checktype(L, 1, LUA_TFUNCTION);
     lsc_collect(L, s, aux_collect, NULL);
     return 1;
 }

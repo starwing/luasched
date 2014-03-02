@@ -57,15 +57,13 @@ typedef enum lsc_Status {
 typedef int lsc_Poll(lsc_State *s, lua_State *from, void *ud);
 
 /*
- * collect the error tasks.
- * deleted is the queue that should deleted later, if you want delete
- * task t, wait it to deleted, DO NOT call lsc_deletetask!.  return 1
- * if a string is pushed to lua_State *from, used concated with
- * preivous error string, or 0 does nothing (and lsc_collect will
+ * collect the error message of errored out tasks.
+ * return 1 if a string is pushed to lua_State *from, used concated
+ * with preivous error string, or 0 does nothing (and lsc_collect will
  * generate error message itself).
  * be ware keep the balance of the Lua stack!
  */
-typedef int lsc_Collect(lsc_Task *t, lua_State *from, lsc_Signal *deleted, void *ud);
+typedef int lsc_Collect(lsc_Task *t, lua_State *from, void *ud);
 
 
 /* 
