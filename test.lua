@@ -51,6 +51,82 @@ add_test("wait_test", function()
    assert(res and ret == "ret")
 end)
 
+add_test("loop_test", function()
+   local counter = 0
+   task.new(function()
+      for i = 1, 10 do
+         task.new(function()
+            counter = counter + 1
+         end)
+      end
+   end)
+   assert(sched.once() == true)
+   assert(sched.loop())
+   assert(counter == 10)
+   local t = task.new(function()
+      error "err"
+   end)
+   assert(not sched.loop())
+   assert(sched.errors(nil) == t)
+   assert(sched.collect():match "err")
+end)
+
+add_test("signal_test", function()
+   local counter = 0
+   local s = signal.new()
+   local ts = {}
+   for i = 1, 10 do
+      ts[i] = task.new(function()
+         counter = counter + 1
+      end):wait(s)
+   end
+   assert(s:count() == 10)
+   for i = 1, 10 do
+      assert(s:index(i) == ts[i])
+      assert(s:next(s:index(i)) == ts[i+1])
+   end
+   local i = 1
+   s:filter(function(t)
+      assert(t == ts[i])
+      i = i + 1
+   end)
+   assert(s:one())
+   assert(counter == 1)
+   assert(s:emit())
+   assert(counter == 10)
+end)
+
+add_test("task_test", function()
+   local t
+   t = task.new(function()
+      assert(task.status() == "running")
+      assert(t:status() == "running")
+   end)
+   assert(t:status() == "ready")
+   assert(t:hold() == t)
+   assert(t:status() == "hold")
+   assert(t:wakeup())
+   assert(t:status() == "dead") -- auto dead
+   t:delete()
+   assert(t:status() == "dead")
+   local t = task.new(function()
+      error "err"
+   end)
+   assert(not t:wakeup())
+   assert(t:status() == "error")
+   t:delete()
+   assert(sched.errors(nil) == nil)
+   local s = signal.new()
+   local t = task.new(function()
+      assert(task.wait(s, "foo") == "bar")
+   end)
+   assert(t:wakeup())
+   assert(t:status() == "waitting")
+   assert(t:context() == "foo")
+   assert(t:context("bar") == t)
+   assert(t:wakeup())
+end)
+
 if arg[1] then
    if tests[arg[1]] then
       print(arg[1])

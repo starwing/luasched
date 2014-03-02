@@ -99,12 +99,16 @@ LSC_API const char *lsc_collect(lua_State *L, lsc_State *s, lsc_Collect *clt, vo
 /* set poll function for once/loop */
 LSC_API void lsc_setpoll(lsc_State *s, lsc_Poll *poll, void *ud);
 
-/* run scheduler once, return non-zero if scheduler need run further,
- * or 0 if scheduler needn't run. */
+/* run scheduler once.
+ * return 1 if scheduler need run further,
+ * return -1 if has tasks error out, 
+ * or return 0 if scheduler needn't run. */
 LSC_API int lsc_once(lsc_State *s, lua_State *from);
 
-/* run a loop, return if not more task is running. */
-LSC_API void lsc_loop(lsc_State *s, lua_State *from);
+/* run a loop.
+ * return 1 if not more task is running,
+ * or return 0 if has tasks error out. */
+LSC_API int lsc_loop(lsc_State *s, lua_State *from);
 
 
 /* create a new lua signal object (a userdata).
@@ -118,6 +122,9 @@ LSC_API void lsc_deletesignal(lsc_Signal *s, lua_State *from);
 
 /* get the extra object binding to signal object */
 LSC_API void *lsc_signalpointer(lsc_Signal *s);
+
+/* check a signal is valid (can be waited) */
+LSC_API int lsc_signalvalid(lsc_Signal *s);
 
 /* check/test whether a object at lua stack is a signal */
 LSC_API lsc_Signal *lsc_checksignal(lua_State *L, int idx);

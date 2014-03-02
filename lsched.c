@@ -104,9 +104,13 @@ void lsc_initsignal(lsc_Signal *s) {
     s->prev = s->next = s;
 }
 
+int lsc_signalvalid(lsc_Signal *s) {
+    return s->prev != NULL;
+}
+
 lsc_Task *lsc_next(lsc_Signal *s, lsc_Task *curr) {
     if (curr == NULL)
-        return s->next == s ? NULL : (lsc_Task*)s->next;
+        return s->prev == s ? NULL : (lsc_Task*)s->next;
     return curr->head.next == s ?
         NULL : (lsc_Task*)curr->head.next;
 }
@@ -120,7 +124,7 @@ size_t lsc_count(lsc_Signal *s) {
 }
 
 lsc_Task *lsc_index(lsc_Signal *s, int idx) {
-    if (s->prev == NULL) /* handle deleted signal */
+    if (!lsc_signalvalid(s)) /* handle deleted signal */
         return NULL;
     if (idx >= 0) {
         lsc_Task *t = NULL;
@@ -186,7 +190,7 @@ static void wakeup_joins(lsc_Task *t, lua_State *from) {
     t->waitat = NULL;
     queue_removeself(&t->head);
     lsc_initsignal(&t->head);
-    if (t->joined.prev == NULL)
+    if (!lsc_signalvalid(&t->joined))
         return;
     queue_replace(&joined, &t->joined);
     /* calc return values */
@@ -256,6 +260,11 @@ int lsc_getcontext(lua_State *L, lsc_Task *t) {
         lua_xmove(t->L, L, 1);
         return 1;
     }
+    if (s > 0 && lua_status(t->L) == LUA_OK) { /* initial task? */
+        int n = lua_tointeger(t->L, 1);
+        return copy_stack(t->L, L,
+                lua_gettop(t->L) - (n == 0 ? 1 : n));
+    }
     return copy_stack(t->L, L, lua_gettop(t->L));
 }
 
@@ -268,7 +277,7 @@ lsc_Status lsc_status(lsc_Task *t) {
         return lsc_Ready;
     else if (t->waitat == &t->S->error)
         return lsc_Error;
-    else if (t->joined.prev == NULL)
+    else if (!lsc_signalvalid(&t->joined))
         return lsc_Finished;
     else if (t->waitat == NULL)
         return lsc_Hold;
@@ -444,23 +453,23 @@ void lsc_setpoll(lsc_State *s, lsc_Poll *poll, void *ud) {
 }
 
 int lsc_once(lsc_State *s, lua_State *from) {
-    lsc_Task *t;
-    lsc_Signal ready_again;
-    lsc_initsignal(&ready_again);
-    while ((t = lsc_next(&s->ready, NULL)) != NULL) {
-        lsc_wakeup(t, from, -1);
-        if (t->waitat == &s->ready)
-            queue_append(&t->head, &ready_again);
-    }
-    queue_replace(&s->ready, &ready_again);
+    lsc_Signal curr_ready;
+    queue_replace(&curr_ready, &s->ready);
+    lsc_initsignal(&s->ready);
+    lsc_emit(&curr_ready, from, -1);
+    assert(curr_ready.prev == &curr_ready);
     if (s->poll != NULL)
         return s->poll(s, from, s->ud);
+    if (s->error.prev != &s->error) /* has errors? */
+        return -1;
     return lsc_next(&s->ready, NULL) != NULL;
 }
 
-void lsc_loop(lsc_State *s, lua_State *from) {
-    while (lsc_once(s, from))
+int lsc_loop(lsc_State *s, lua_State *from) {
+    int res;
+    while ((res = lsc_once(s, from)) > 0)
         ;
+    return res == 0;
 }
 
 
@@ -494,7 +503,7 @@ int lsc_pushtask(lua_State *L, lsc_Task *t) {
 
 lsc_Signal *lsc_checksignal(lua_State *L, int idx) {
     lsc_Signal *s = (lsc_Signal*)luaL_checkudata(L, idx, "sched.signal");
-    if (s->prev == NULL)
+    if (!lsc_signalvalid(s))
         luaL_argerror(L, idx, "got deleted signal");
     return s;
 }
@@ -521,7 +530,7 @@ static int Lsignal_tostring(lua_State *L) {
     lsc_Signal *s = lsc_testsignal(L, 1);
     if (s == NULL)
         luaL_tolstring(L, -1, NULL);
-    else if (s->prev == NULL)
+    else if (!lsc_signalvalid(s))
         lua_pushfstring(L, "sched.signal(deleted): %p", s);
     else
         lua_pushfstring(L, "sched.signal: %p", s);
@@ -565,6 +574,7 @@ static int Lsignal_filter(lua_State *L) {
     while (t != NULL) {
         int n;
         lsc_Task *next = lsc_next(s, t);
+        lua_pushvalue(L, -1);
         lsc_pushtask(L, t);
         n = lsc_getcontext(L, t) + 1;
         lua_call(L, n, 0);
@@ -727,7 +737,8 @@ static int Ltask_context(lua_State *L) {
     if (top > 0) { /* set context */
         lua_settop(t->L, 0);
         lua_xmove(L, t->L, top);
-        return 0;
+        lua_settop(L, 1);
+        return 1;
     }
     return lsc_getcontext(L, t);
 }
@@ -826,13 +837,17 @@ static int Lsetpoll(lua_State *L) {
 
 static int Lonce(lua_State *L) {
     lsc_State *s = lsc_state(L);
-    lua_pushboolean(L, lsc_once(s, L));
+    int res = lsc_once(s, L);
+    if (res >= 0)
+        lua_pushboolean(L, res);
+    else
+        lua_pushnil(L);
     return 1;
 }
 
 static int Lloop(lua_State *L) {
-    lsc_loop(lsc_state(L), L);
-    return 0;
+    lua_pushboolean(L, lsc_loop(lsc_state(L), L));
+    return 1;
 }
 
 static int Lerrors(lua_State *L) {
