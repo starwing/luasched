@@ -232,11 +232,11 @@ static int copy_stack(lua_State *from, lua_State *to, int n) {
 
 int lsc_setcontext(lua_State *L, lsc_Task *t, int nargs) {
     lsc_Status s = lsc_status(t);
-    if (s == lsc_Dead || s == lsc_Running)
-        return 0;
-    if (lua_status(t->L) == LUA_OK) /* initial task? */
-        lua_settop(t->L, 1);
-    else
+    if (s <= 0) return 0;
+    if (lua_status(t->L) == LUA_OK) { /* initial task? */
+        int n = lua_tointeger(t->L, 1);
+        lua_settop(t->L, n == 0 ? 1 : n);
+    } else
         lua_settop(t->L, 0);
     return copy_stack(L, t->L, nargs);
 }

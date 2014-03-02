@@ -175,11 +175,25 @@ LSC_API int lsc_pushtask(lua_State *L, lsc_Task *t);
 
 /* push the context of task t onto lua stack, preivous context will be
  * clean up.
+ *
  * NOTE that contexts at lua stack L will NOT poped, this allow you
  * set many tasks' context without copy contexts on L.
+ *
  * if you needn't retain contexts on lua stack L, use `lua_xmove`
- * instead, it may faster than this routine.
- * does nothing if t is running, dead or finished */
+ * instead, it may faster than this routine, beware the special case
+ * described below:
+ *
+ * if task t has never waked up before (i.e. it have a 'fresh'
+ * coroutine underlying), there is some special rules: if the bottom
+ * of stack (index 1) is a integer, then it's the retained index
+ * numbers of stack (include itself). otherwise, the count of retained
+ * index is 1, usually the function will be called itself. if you call
+ * `lsc_setcontext` on this kind of task, the retained indexs will not
+ * touched.
+ *
+ * does nothing if t is running, dead, finished or error out (i.e.
+ * status > 0).
+ */
 LSC_API int lsc_setcontext(lua_State *L, lsc_Task *t, int nargs);
 
 /* get context of task t, or return values if t finished, or error
