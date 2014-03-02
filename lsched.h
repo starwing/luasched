@@ -76,7 +76,7 @@ LUALIB_API int luaopen_sched_signal(lua_State *L);
 LUALIB_API int luaopen_sched_task(lua_State *L);
 
 /* 
- * install lua module to Lua, so you can require() it.
+ * install lua module to Lua, so you can `require()` it.
  * will install "sched", "sched.signal" and "sched.task" module.
  */
 LSC_API void lsc_install(lua_State *L);
@@ -109,12 +109,15 @@ LSC_API void lsc_loop(lsc_State *s, lua_State *from);
 
 /* create a new lua signal object (a userdata).
  * extrasz is the extrasz, you can contain your data here. you can get
- * a pointer to that with lsc_signalud().  */
+ * a pointer to that with `lsc_signalud`.  */
 LSC_API lsc_Signal *lsc_newsignal(lua_State *L, size_t extrasz);
 
 /* delete a lua signal object. will wakeup all tasks wait on them and
  * then invalid this signal (can not wait on it). */
 LSC_API void lsc_deletesignal(lsc_Signal *s, lua_State *from);
+
+/* get the extra object binding to signal object */
+LSC_API void *lsc_signalpointer(lsc_Signal *s);
 
 /* check/test whether a object at lua stack is a signal */
 LSC_API lsc_Signal *lsc_checksignal(lua_State *L, int idx);
@@ -126,13 +129,6 @@ LSC_API lsc_Signal *lsc_testsignal(lua_State *L, int idx);
  * ensure this.
  */
 LSC_API void lsc_initsignal(lsc_Signal *s);
-
-/* 
- * get the extra object binding to signal object.
- * if you pass 0 to extrasz when you create the signal object, NULL
- * will returned.
- */
-LSC_API void *lsc_signalpointer(lsc_Signal *s);
 
 /* return the next task wait on s, the previous task is curr, the
  * first task will returned if curr == NULL, or NULL if no tasks
@@ -164,6 +160,13 @@ LSC_API lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz);
  * run/joined this task.
  */
 LSC_API int lsc_deletetask(lsc_Task *t, lua_State *from);
+
+/* 
+ * get the extra object binding to task object.
+ * if you pass 0 to extrasz when you create the task object, NULL
+ * will returned.
+ */
+LSC_API void *lsc_signalpointer(lsc_Signal *s);
 
 /* check/test whether a object at lua stack is a task */
 LSC_API lsc_Task *lsc_checktask(lua_State *L, int idx);
@@ -204,10 +207,9 @@ LSC_API int lsc_getcontext(lua_State *L, lsc_Task *t);
 LSC_API lsc_Status lsc_status(lsc_Task *t);
 
 /* set a task t as error status, the error string given as errmsg.
- *
  * called joined tasks af any, see `lsc_wakeup`.
- *
- * does nothing if t is dead or at `lsc_Running` status.
+ * does nothing if t is running, dead, finished or already error out
+ * (i.e. status <= 0)
  */
 LSC_API int lsc_error(lsc_Task *t, const char *errmsg);
 
@@ -217,15 +219,15 @@ LSC_API int lsc_error(lsc_Task *t, const char *errmsg);
  * this case you'd better use `return lsc_wait(...);` idiom, just like
  * `lua_yield`.
  * nctx is the number of context data on t's stack. contexts can set
- * by lsc_setcontext().
+ * by `lsc_setcontext`.
  * it will return immediately if t is already waitting for something.
  * so it's a way to change task's waiting.
  *
- * if s == NULL, this is equal `lsc_hold()`.
+ * if s == NULL, this is equal `lsc_hold`.
  */
 LSC_API int lsc_wait(lsc_Task *t, lsc_Signal *s, int nctx);
 
-/* ready to run at next tick. i.e. the next run of lsc_once().
+/* ready to run at next tick. i.e. the next run of `lsc_once`.
  * does nothing if task is running */
 LSC_API int lsc_ready(lsc_Task *t, int nctx);
 
@@ -236,7 +238,8 @@ LSC_API int lsc_hold(lsc_Task *t, int nctx);
 /* wait to another task finished or errored.
  * does nothing if:
  *   - t is running;
- *   - jointo is dead, error out or finished.
+ *   - jointo is running, dead, finished or errored out.
+ *     (i.e. status <= 0)
  * */
 LSC_API int lsc_join(lsc_Task *t, lsc_Task *jointo, int nctx);
 
@@ -259,7 +262,7 @@ LSC_API int lsc_join(lsc_Task *t, lsc_Task *jointo, int nctx);
  * 
  * this function will return 0 for error, or 1 otherwise.
  */
-int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs);
+LSC_API int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs);
 
 /* emit a signal, wake up all tasks wait on it.
  * 
