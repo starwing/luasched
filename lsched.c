@@ -70,6 +70,11 @@ static void queue_replace(lsc_Signal *head, lsc_Signal *to) {
         head->prev = head->next = head;
 }
 
+static int queue_task(lsc_Task *t, lsc_Signal *s) {
+    queue_append(&t->head, t->waitat = s);
+    return 1;
+}
+
 lsc_Signal *lsc_newsignal(lua_State *L, size_t extrasz) {
     lsc_Signal *s =
         (lsc_Signal*)lua_newuserdata(L, sizeof(lsc_Signal) + extrasz);
@@ -276,9 +281,7 @@ int lsc_error(lsc_Task *t, const char *errmsg) {
     if (s == lsc_Running) return luaL_error(t->L, errmsg);
     lua_settop(t->L, 0);
     lua_pushstring(t->L, errmsg); /* context */
-    t->waitat = &t->S->error;
-    queue_append(&t->head, t->waitat);
-    return 1;
+    return queue_task(t, &t->S->error);
 }
 
 int lsc_wait(lsc_Task *t, lsc_Signal *s, int nctx) {
@@ -298,9 +301,7 @@ int lsc_wait(lsc_Task *t, lsc_Signal *s, int nctx) {
 int lsc_ready(lsc_Task *t, int nctx) {
     if (lsc_status(t) == lsc_Running)
         return 0;
-    t->waitat = &t->S->ready;
-    queue_append(&t->head, t->waitat);
-    return 1;
+    return queue_task(t, &t->S->ready);
 }
 
 int lsc_hold(lsc_Task *t, int nctx) {
@@ -315,14 +316,8 @@ int lsc_hold(lsc_Task *t, int nctx) {
 int lsc_join(lsc_Task *t, lsc_Task *jointo, int nctx) {
     lsc_Status st = lsc_status(t);
     lsc_Status sj = lsc_status(jointo);
-    if (st == lsc_Running ||
-            sj == lsc_Error ||
-            sj == lsc_Finished ||
-            sj == lsc_Dead)
-        return 0;
-    t->waitat = &jointo->joined;
-    queue_append(&t->head, t->waitat);
-    return 1;
+    if (st == lsc_Running || sj <= 0) return 0;
+    return queue_task(t, &jointo->joined);
 }
 
 static void adjust_stack(lua_State *L, int top, int nargs) {
@@ -341,8 +336,7 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
     lsc_Status s = lsc_status(t);
     int res, top;
     if (s <= 0) return 0;
-    t->waitat = &t->S->running;
-    queue_append(&t->head, t->waitat);
+    queue_task(t, &t->S->running);
     res = lua_status(t->L);
     top = lua_gettop(t->L);
     if (nargs < 0) { /* nargs defaults all stack values */
@@ -363,9 +357,7 @@ int lsc_wakeup(lsc_Task *t, lua_State *from, int nargs) {
             assert(errmsg != NULL);
             lua_settop(t->L, 0);
             lua_pushstring(t->L, errmsg);
-            /* append to error list if error out */
-            t->waitat = &t->S->error;
-            queue_append(&t->head, t->waitat);
+            queue_task(t, &t->S->error);
             return 0;
         }
     }
@@ -417,8 +409,7 @@ lsc_Task *lsc_maintask(lua_State *L) {
     s->main = lsc_newtask(L, mL, 0);
     lua_pop(L, 2);
     /* main task is always treats as running */
-    s->main->waitat = &s->running;
-    queue_append(&s->main->head, s->main->waitat);
+    queue_task(s->main, &s->running);
     return s->main;
 }
 
