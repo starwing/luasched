@@ -118,8 +118,9 @@ LSC_API lsc_Signal *lsc_newsignal(lua_State *L, size_t extrasz);
  * then invalid this signal (can not wait on it). */
 LSC_API void lsc_deletesignal(lsc_Signal *s, lua_State *from);
 
-/* get the extra object binding to signal object */
-LSC_API void *lsc_signalpointer(lsc_Signal *s);
+/* get the extra object binding to signal object and vice versa */
+#define lsc_signalpointer(s) (void*)((lsc_Signal*)(s) + 1)
+#define lsc_signalfromptr(p)        ((lsc_Signal*)(p) - 1)
 
 /* check a signal is valid (can be waited) */
 LSC_API int lsc_signalvalid(lsc_Signal *s);
@@ -166,12 +167,9 @@ LSC_API lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz);
  */
 LSC_API int lsc_deletetask(lsc_Task *t, lua_State *from);
 
-/* 
- * get the extra object binding to task object.
- * if you pass 0 to extrasz when you create the task object, NULL
- * will returned.
- */
-LSC_API void *lsc_signalpointer(lsc_Signal *s);
+/* get the extra object binding to task object and vice versa */
+#define lsc_taskpointer(t) (void*)((lsc_Task*)(t) + 1)
+#define lsc_taskfromptr(p)        ((lsc_Task*)(p) - 1)
 
 /* check/test whether a object at lua stack is a task */
 LSC_API lsc_Task *lsc_checktask(lua_State *L, int idx);

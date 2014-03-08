@@ -96,10 +96,6 @@ void lsc_deletesignal(lsc_Signal *s, lua_State *from) {
     }
 }
 
-void *lsc_signalpointer(lsc_Signal *s) {
-    return (void*)(s + 1);
-}
-
 void lsc_initsignal(lsc_Signal *s) {
     s->prev = s->next = s;
 }
@@ -175,10 +171,6 @@ lsc_Task *lsc_newtask(lua_State *L, lua_State *coro, size_t extrasz) {
     lsc_initsignal(&t->joined);
     register_task(L, t);
     return t;
-}
-
-void *lsc_taskpointer(lsc_Task *t) {
-    return (void*)(t + 1);
 }
 
 static void wakeup_joins(lsc_Task *t, lua_State *from) {
@@ -454,16 +446,17 @@ void lsc_setpoll(lsc_State *s, lsc_Poll *poll, void *ud) {
 }
 
 int lsc_once(lsc_State *s, lua_State *from) {
+    int res = 0;
     lsc_Signal curr_ready;
     queue_replace(&curr_ready, &s->ready);
     lsc_initsignal(&s->ready);
     lsc_emit(&curr_ready, from, -1);
     assert(curr_ready.prev == &curr_ready);
     if (s->poll != NULL)
-        return s->poll(s, from, s->ud);
+        res = !s->poll(s, from, s->ud);
     if (s->error.prev != &s->error) /* has errors? */
         return -1;
-    return lsc_next(&s->ready, NULL) != NULL;
+    return res || lsc_next(&s->ready, NULL) != NULL;
 }
 
 int lsc_loop(lsc_State *s, lua_State *from) {
